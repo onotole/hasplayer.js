@@ -80,8 +80,14 @@ MediaPlayer.models.ProtectionModel_01b = function () {
                                 new MediaPlayer.vo.protection.NeedKey(initData, "cenc"));
                             // FIXME: this one is the obvious shortcut - should we delegate this to controller?
                             if (!keyRequestSent) {
+                                var extraData = new Uint8Array(initData);
+                                try {
+                                    var currentSession = pendingSessions[pendingSessions.length - 1];
+                                    extraData = new Uint8Array(currentSession.customData);
+                                } catch (e) {}
+                                if (pendingSessions)
                                 videoElement[api.generateKeyRequest]
-                                        (self.keySystem.systemString, new Uint8Array(initData));
+                                        (self.keySystem.systemString, extraData);
                                 keyRequestSent = true;
                             }
 
@@ -362,7 +368,7 @@ MediaPlayer.models.ProtectionModel_01b = function () {
             return Q.when();
         },
 
-        createKeySession: function(initData /*, keySystemType */) {
+        createKeySession: function(initData, sessionType, cdmData) {
 
             if (!this.keySystem) {
                 throw new Error("Can not create sessions until you have selected a key system");
@@ -371,9 +377,27 @@ MediaPlayer.models.ProtectionModel_01b = function () {
             // Determine if creating a new session is allowed
             if (moreSessionsAllowed || sessions.length === 0) {
 
+                var extractCustomData = function(cdmData) {
+                    var customData = null;
+                    try {
+                        var cdmStr = String.fromCharCode.apply(null, new Uint16Array(cdmData));
+                        var cdmDoc = new DOMParser().parseFromString(cdmStr, "text/xml");
+                        var cdNode = cdmDoc.getElementsByTagName("CustomData")[0];
+                        var cdStr = cdNode.textContent;
+                        var cdBuf = new ArrayBuffer(cdStr.length);
+                        var cdView = new Uint8Array(cdBuf);
+                        for (var i = 0; i < cdStr.length; ++i)
+                            cdView[i] = cdStr.charCodeAt(i);
+                        customData = cdBuf;
+                    } catch (e) {}
+                    return customData;
+                };
+
                 var newSession = { // Implements MediaPlayer.vo.protection.SessionToken
                     sessionID: null,
                     initData: initData,
+                    cdmData: cdmData,
+                    customData: extractCustomData(cdmData),
 
                     getSessionID: function() {
                         return this.sessionID;
@@ -388,9 +412,6 @@ MediaPlayer.models.ProtectionModel_01b = function () {
                     }
                 };
                 pendingSessions.push(newSession);
-
-                // Send our request to the CDM
-                videoElement[api.generateKeyRequest](this.keySystem.systemString, new Uint8Array(initData));
 
                 return newSession;
 
