@@ -330,11 +330,16 @@ Dash.dependencies.DashManifestExtensions.prototype = {
         "use strict";
         var i = 0,
             representation,
-            codec = null;
+            codec = null,
+            bitrate = Infinity;
 
-        while ((codec === null) && (i < adaptation.Representation_asArray.length)) {
+        while (i < adaptation.Representation_asArray.length) {
             representation = adaptation.Representation_asArray[i];
-            codec = this.getCodecForRepresentation(representation);
+            // pick less restrictive codec out of all representations
+            if (representation.bandwidth < bitrate) {
+                codec = this.getCodecForRepresentation(representation);
+                bitrate = representation.bandwidth;
+            }
             i++;
         }
 
