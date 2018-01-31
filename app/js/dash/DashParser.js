@@ -97,7 +97,7 @@ Dash.dependencies.DashParser = function () {
             var template = {};
             setAttributeIfExists(node, template, "initialization");
             setAttributeIfExists(node, template, "media");
-            setAttributeIfExists(node, template, "presentationTimeOffset", parseFloat);
+            // setAttributeIfExists(node, template, "presentationTimeOffset", parseFloat);
             setAttributeIfExists(node, template, "timescale", parseFloat);
             for (var c = 0; c < node.childNodes.length; ++c) {
                 var child = node.childNodes[c];
