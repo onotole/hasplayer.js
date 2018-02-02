@@ -24,7 +24,6 @@ Dash.dependencies.DashParser = function () {
         durationRegex = /^P(([\d.]*)Y)?(([\d.]*)M)?(([\d.]*)D)?T?(([\d.]*)H)?(([\d.]*)M)?(([\d.]*)S)?/,
         datetimeRegex = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})(?::([0-9]*)(\.[0-9]*)?)?(?:([+-])([0-9]{2})([0-9]{2}))?/,
         xmlDoc = null,
-        baseURL = null,
 
         parseDuration = function(str) {
             //str = "P10Y10M10DT10H10M10.1S";
@@ -66,6 +65,10 @@ Dash.dependencies.DashParser = function () {
                 obj[key] = conv ? conv(val) : val;
         },
 
+        parseBaseURL = function(node) {
+            return node.textContent;
+        },
+
         parseInbandEventStream = function(node) {
             var inband = {};
             setAttributeIfExists(node, inband, "schemeIdUri");
@@ -99,6 +102,8 @@ Dash.dependencies.DashParser = function () {
             setAttributeIfExists(node, template, "media");
             // setAttributeIfExists(node, template, "presentationTimeOffset", parseFloat);
             setAttributeIfExists(node, template, "timescale", parseFloat);
+            setAttributeIfExists(node, template, "duration", parseFloat);
+            setAttributeIfExists(node, template, "startNumber", parseFloat);
             for (var c = 0; c < node.childNodes.length; ++c) {
                 var child = node.childNodes[c];
                 if (child.tagName === "SegmentTimeline")
@@ -108,7 +113,7 @@ Dash.dependencies.DashParser = function () {
             return template;
         },
 
-        parseRepresentation = function(node, mimeType, profiles, codecs) {
+        parseRepresentation = function(node, mimeType, baseUrl, profiles, codecs) {
             var representation = {};
             setAttributeIfExists(node, representation, "bandwidth", parseFloat);
             setAttributeIfExists(node, representation, "codecs");
@@ -116,6 +121,8 @@ Dash.dependencies.DashParser = function () {
             setAttributeIfExists(node, representation, "height", parseFloat);
             setAttributeIfExists(node, representation, "id");
             setAttributeIfExists(node, representation, "mimeType");
+            setAttributeIfExists(node, representation, "BaseURL");
+            representation.BaseURL = baseUrl + (representation.BaseURL ? representation.BaseURL : "");
             if (!representation.hasOwnProperty("mimeType"))
                 representation.mimeType = mimeType;
             setAttributeIfExists(node, representation, "profiles");
@@ -124,7 +131,6 @@ Dash.dependencies.DashParser = function () {
             setAttributeIfExists(node, representation, "codec");
             if (!representation.hasOwnProperty("codecs"))
                 representation.codecs = codecs;
-            representation.BaseURL = baseURL;
             return representation;
         },
 
@@ -156,7 +162,7 @@ Dash.dependencies.DashParser = function () {
             return protection;
         },
 
-        parseAdaptationSet = function(node) {
+        parseAdaptationSet = function(node, baseUrl) {
             var adaptation = {};
             setAttributeIfExists(node, adaptation, "bitstreamSwitching");
             setAttributeIfExists(node, adaptation, "codecs");
@@ -169,10 +175,19 @@ Dash.dependencies.DashParser = function () {
             setAttributeIfExists(node, adaptation, "profiles");
             setAttributeIfExists(node, adaptation, "segmentAlignment");
             setAttributeIfExists(node, adaptation, "startWithSAP", parseFloat);
+            setAttributeIfExists(node, adaptation, "BaseURL");
+            var c, child;
+            for (c = 0; c < node.childNodes.length; ++c) {
+                child = node.childNodes[c];
+                if (child.tagName === "BaseURL")
+                    adaptation.BaseURL = parseBaseURL(child);
+            }
+            adaptation.BaseURL = baseUrl + (adaptation.BaseURL ? adaptation.BaseURL : "");
+
             adaptation.Representation = [];
             adaptation.ContentProtection = [];
-            for (var c = 0; c < node.childNodes.length; ++c) {
-                var child = node.childNodes[c];
+            for (c = 0; c < node.childNodes.length; ++c) {
+                child = node.childNodes[c];
                 switch (child.tagName) {
                     case "ContentProtection":
                         adaptation.ContentProtection.push(parseContentProtection(child));
@@ -187,7 +202,7 @@ Dash.dependencies.DashParser = function () {
                         break;
                     case "Representation":
                         adaptation.Representation.push
-                                (parseRepresentation(child, adaptation.mimeType,
+                                (parseRepresentation(child, adaptation.mimeType, adaptation.BaseURL,
                                                      adaptation.profiles, adaptation.codecs));
                         break;
                 }
@@ -196,28 +211,34 @@ Dash.dependencies.DashParser = function () {
             adaptation.Representation_asArray = adaptation.Representation;
             for (var r = 0; r < adaptation.Representation.length; ++r)
                 adaptation.Representation[r].SegmentTemplate = adaptation.SegmentTemplate;
-
-            adaptation.BaseURL = baseURL;
             return adaptation;
         },
 
-        parsePeriod = function(node) {
+        parsePeriod = function(node, baseUrl) {
             var period = {};
             setAttributeIfExists(node, period, "start", parseDuration);
+            setAttributeIfExists(node, period, "BaseURL");
+            var c, child;
+            for (c = 0; c < node.childNodes.length; ++c) {
+                child = node.childNodes[c];
+                if (child.tagName === "BaseURL")
+                    period.BaseURL = parseBaseURL(child);
+            }
+            period.BaseURL = baseUrl + (period.BaseURL ? period.BaseURL : "");
             period.AdaptationSet = [];
-            for (var c = 0; c < node.childNodes.length; ++c) {
-                var child = node.childNodes[c];
+            for (c = 0; c < node.childNodes.length; ++c) {
+                child = node.childNodes[c];
                 if (child.tagName === "AdaptationSet")
-                    period.AdaptationSet.push(parseAdaptationSet(child));
+                    period.AdaptationSet.push(parseAdaptationSet(child, period.BaseURL));
             }
             period.AdaptationSet_asArray = period.AdaptationSet;
-            period.BaseURL = baseURL;
             return period;
         },
 
-        processManifest = function() {
+        processManifest = function(baseUrl) {
             var mpd = {},
                 mpdNode = xmlDoc.getElementsByTagName("MPD")[0];
+            mpd.BaseURL = baseUrl;
             setAttributeIfExists(mpdNode, mpd, "xmlns");
             setAttributeIfExists(mpdNode, mpd, "xmlns:xsi");
             setAttributeIfExists(mpdNode, mpd, "xmlns:cenc");
@@ -232,12 +253,20 @@ Dash.dependencies.DashParser = function () {
             setAttributeIfExists(mpdNode, mpd, "availabilityStartTime", parseDateTime);
             setAttributeIfExists(mpdNode, mpd, "publishTime", parseDateTime);
             setAttributeIfExists(mpdNode, mpd, "BaseURL");
-            if (!mpd.hasOwnProperty("BaseURL"))
-                mpd.BaseURL = baseURL;
-
-            // TODO: handle multiple periods
-            var periodNode = xmlDoc.getElementsByTagName("Period")[0];
-            mpd.Period = parsePeriod(periodNode);
+            // First loop to update propagatable attributes (BaseURL)
+            var c, child;
+            for (c = 0; c < mpdNode.childNodes.length; ++c) {
+                child = mpdNode.childNodes[c];
+                if (child.tagName === "BaseURL")
+                    mpd.BaseURL = parseBaseURL(child);
+            }
+            for (c = 0; c < mpdNode.childNodes.length; ++c) {
+                child = mpdNode.childNodes[c];
+                if (child.tagName === "Period") {
+                    mpd.Period = parsePeriod(child, mpd.BaseURL);
+                    break;
+                }
+            }
             mpd.Period_asArray = [mpd.Period];
             return mpd;
         },
@@ -248,13 +277,11 @@ Dash.dependencies.DashParser = function () {
                 xml = null,
                 process = null;
 
-            baseURL = baseUrl;
-
             try {
                 xmlDoc = new DOMParser().parseFromString(data, "text/xml");
                 xml = new Date();
 
-                manifest = processManifest();
+                manifest = processManifest(baseUrl);
                 process = new Date();
 
                 this.debug.log("Parsing complete: (xml: " + (xml.getTime() - start.getTime()) +
