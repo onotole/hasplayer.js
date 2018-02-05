@@ -113,6 +113,25 @@ Dash.dependencies.DashParser = function () {
             return template;
         },
 
+        parseInitialization = function(node) {
+            var init = {};
+            setAttributeIfExists(node, init, "range");
+            return init;
+        },
+
+        parseSegmentBase = function(node) {
+            var base = {};
+            setAttributeIfExists(node, base, "indexRange");
+            for (var c = 0; c < node.childNodes.length; ++c) {
+                var child = node.childNodes[c];
+                if (child.tagName === "Initialization") {
+                    base.Initialization = parseInitialization(child);
+                    base.Initialization_asArray = [base.Initialization];
+                }
+            }
+            return base;
+        },
+
         parseRepresentation = function(node, mimeType, baseUrl, profiles, codecs) {
             var representation = {};
             setAttributeIfExists(node, representation, "bandwidth", parseFloat);
@@ -122,6 +141,18 @@ Dash.dependencies.DashParser = function () {
             setAttributeIfExists(node, representation, "id");
             setAttributeIfExists(node, representation, "mimeType");
             setAttributeIfExists(node, representation, "BaseURL");
+            for (var c = 0; c < node.childNodes.length; ++c) {
+                var child = node.childNodes[c];
+                switch (child.tagName) {
+                    case "BaseURL":
+                        representation.BaseURL = parseBaseURL(child);
+                        break;
+                    case "SegmentBase":
+                        representation.SegmentBase = parseSegmentBase(child);
+                        representation.SegmentBase_asArray = [representation.SegmentBase];
+                        break;
+                }
+            }
             representation.BaseURL = baseUrl + (representation.BaseURL ? representation.BaseURL : "");
             if (!representation.hasOwnProperty("mimeType"))
                 representation.mimeType = mimeType;
@@ -209,8 +240,10 @@ Dash.dependencies.DashParser = function () {
             }
             adaptation.ContentProtection_asArray = adaptation.ContentProtection;
             adaptation.Representation_asArray = adaptation.Representation;
-            for (var r = 0; r < adaptation.Representation.length; ++r)
-                adaptation.Representation[r].SegmentTemplate = adaptation.SegmentTemplate;
+            if (adaptation.SegmentTemplate) {
+                for (var r = 0; r < adaptation.Representation.length; ++r)
+                    adaptation.Representation[r].SegmentTemplate = adaptation.SegmentTemplate;
+            }
             return adaptation;
         },
 
