@@ -80,14 +80,55 @@ MediaPlayer.models.ProtectionModel_01b = function () {
                                 new MediaPlayer.vo.protection.NeedKey(initData, "cenc"));
                             // FIXME: this one is the obvious shortcut - should we delegate this to controller?
                             if (!keyRequestSent) {
-                                var extraData = new Uint8Array(initData);
+                                // Expected initData as ArrayBuffer and customData as String;
+                                // returns ArrayBuffer
+                                var embedCustomData = function(initData, customData) {
+                                    if (!customData || !customData.length)
+                                        return initData;
+
+                                    var dLen = customData.length + 4,
+                                        psshBox = new ArrayBuffer(initData.byteLength + dLen),
+                                        vInit = new DataView(initData),
+                                        vBox = new DataView(psshBox),
+                                        ptr = 0;
+                                    // copy original initData
+                                    for (var b = 0; b < initData.byteLength; ++b)
+                                        vBox.setUint8(b, vInit.getUint8(b));
+                                    // update pssh box size
+                                    vBox.setUint32(ptr, vBox.getUint32(ptr) + dLen); ptr += 4;
+                                    // skip box type "pssh"
+                                    ptr += 4;
+                                    // get pssh flags
+                                    var psshFlags = vBox.getUint32(ptr); ptr += 4;
+                                    // skip systemId
+                                    ptr += 16;
+                                    if ((psshFlags >> 24) & 0xFF) {
+                                        var kids = vBox.getUint32(ptr); ptr += 4;
+                                        // skip kids
+                                        ptr += kids * 16;
+                                    }
+                                    // update pssh box data size
+                                    vBox.setUint32(ptr, vBox.getUint32(ptr) + dLen); ptr += 4;
+                                    // update PR header size
+                                    vBox.setUint32(ptr, vBox.getUint32(ptr, true) + dLen, true); ptr += 4;
+                                    // update PR header record count
+                                    vBox.setUint16(ptr, vBox.getUint16(ptr, true) + 1, true); ptr += 2;
+                                    // append PR record:
+                                    // type = 0x0007, len = customData.length, customData as ASCII
+                                    ptr = initData.byteLength;
+                                    vBox.setUint16(ptr, 0x0007, true); ptr += 2;
+                                    vBox.setUint16(ptr, customData.length, true); ptr += 2;
+                                    for (var c = 0; c < customData.length; ++c)
+                                        vBox.setUint8(ptr++, customData.charCodeAt(c));
+                                    return psshBox;
+                                };
                                 try {
                                     var currentSession = pendingSessions[pendingSessions.length - 1];
-                                    extraData = new Uint8Array(currentSession.customData);
+                                    pendingSessions.pop();
+                                    initData = embedCustomData(initData, currentSession.customData);
                                 } catch (e) {}
-                                if (pendingSessions)
                                 videoElement[api.generateKeyRequest]
-                                        (self.keySystem.systemString, extraData);
+                                        (self.keySystem.systemString, new Uint8Array(initData));
                                 keyRequestSent = true;
                             }
 
@@ -376,20 +417,19 @@ MediaPlayer.models.ProtectionModel_01b = function () {
 
             // Determine if creating a new session is allowed
             if (moreSessionsAllowed || sessions.length === 0) {
-
                 var extractCustomData = function(cdmData) {
+                    if (typeof cdmData === "string" || cdmData instanceof String)
+                        return cdmData;
                     var customData = null;
                     try {
                         var cdmStr = String.fromCharCode.apply(null, new Uint16Array(cdmData));
                         var cdmDoc = new DOMParser().parseFromString(cdmStr, "text/xml");
-                        var cdNode = cdmDoc.getElementsByTagName("CustomData")[0];
-                        var cdStr = cdNode.textContent;
-                        var cdBuf = new ArrayBuffer(cdStr.length);
-                        var cdView = new Uint8Array(cdBuf);
-                        for (var i = 0; i < cdStr.length; ++i)
-                            cdView[i] = cdStr.charCodeAt(i);
-                        customData = cdBuf;
-                    } catch (e) {}
+                        var cdStr = cdmDoc.getElementsByTagName("CustomData")[0].textContent;
+                        var cdArr = BASE64.decodeArray(cdStr);
+                        customData = String.fromCharCode.apply(null, new Uint16Array(cdArr.buffer));
+                    } catch (e) {
+                        customData = null;
+                    }
                     return customData;
                 };
 

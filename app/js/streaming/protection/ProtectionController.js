@@ -682,6 +682,33 @@ MediaPlayer.dependencies.ProtectionController = function() {
                     }
                 }
                 try {
+                    // custom data can be provided as:
+                    // 1) cdmData parameter of protData object;
+                    // 2) embedded into laURL with '%%%' separator, like http://la.server.com/acquire%%%CUSTOM_DATA
+                    // 3) as 'cd' laURL parameter, like http://la.server.com/acquire?cd=CUSTOM_DATA
+                    if (!cdmData) {
+                        var protData = getProtData(this.keySystem);
+                        var getCustomData = function(laurl) {
+                            var tokens = laurl.split("%%%");
+                            if (tokens.length > 1) {
+                                laurl = tokens[0];
+                                return tokens[1];
+                            }
+                            tokens = laurl.split("?");
+                            if (tokens.length > 1) {
+                                tokens = tokens[1].split("&");
+                                for (var t = 0; t < tokens.length; ++t) {
+                                    var kvp = tokens[t].split("=");
+                                    if (kvp.length === 2 && kvp[0] === "cd")
+                                        return kvp[1];
+                                }
+                            }
+                            return null;
+                        };
+                        if (protData && protData.laURL) {
+                            cdmData = getCustomData(protData.laURL);
+                        }
+                    }
                     this.protectionModel.createKeySession(initDataForKS, this.keySystem.sessionType, cdmData);
                 } catch (ex) {
                     this.notify(MediaPlayer.models.ProtectionModel.eventList.ENAME_KEY_SESSION_CREATED, null, {
