@@ -378,6 +378,7 @@ MediaPlayer.dependencies.ProtectionController = function() {
             };
 
             // Set optional XMLHttpRequest headers from protection data and message
+            var setHeaders = {};
             var updateHeaders = function(headers) {
                 var key;
                 if (headers) {
@@ -385,7 +386,11 @@ MediaPlayer.dependencies.ProtectionController = function() {
                         if ('authorization' === key.toLowerCase()) {
                             xhrLicense.withCredentials = true;
                         }
-                        xhrLicense.setRequestHeader(key, headers[key]);
+                        // don't override previously set headers
+                        if (!setHeaders[key]) {
+                            xhrLicense.setRequestHeader(key, headers[key]);
+                            setHeaders[key] = headers[key];
+                        }
                     }
                 }
             };

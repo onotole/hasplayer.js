@@ -124,7 +124,6 @@ MediaPlayer.models.ProtectionModel_01b = function () {
                                 };
                                 try {
                                     var currentSession = pendingSessions[pendingSessions.length - 1];
-                                    pendingSessions.pop();
                                     initData = embedCustomData(initData, currentSession.customData);
                                 } catch (e) {}
                                 videoElement[api.generateKeyRequest]
